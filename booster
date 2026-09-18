@@ -1,0 +1,2 @@
+loadstring(game:HttpGet("https://raw.githubusercontent.com/anjelandcabardogf2019-dev/fps.booster/refs/heads/main/boot"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/anjelandcabardogf2019-dev/MainLuaAim/refs/heads/main/Aim2"))()
