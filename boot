@@ -14,8 +14,8 @@ local isDetectionActive = false
 
 -- State tracking for sequence input
 local inputBuffer = ""
-local TARGET_ENABLE = ".d"
-local TARGET_DISABLE = ".c"
+local TARGET_ENABLE = ".w"
+local TARGET_DISABLE = ".s"
 
 -- Function to check raycast under crosshair
 local function getHeadUnderCrosshair()
