@@ -1,0 +1,562 @@
+```lua
+--//====================================================
+--// Randomizer FPS - Crosshair Aim Assist
+--// Targets players closest to the center of the screen
+--//====================================================
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Camera = workspace.CurrentCamera
+
+--------------------------------------------------------
+-- SETTINGS
+--------------------------------------------------------
+
+local AimAssistEnabled = false
+local AimKey = Enum.KeyCode.E
+local IsRebinding = false
+
+-- Maximum distance from the crosshair that can be targeted
+-- Measured in screen pixels.
+local AimFOV = 250
+
+-- Aim at the enemy's head
+local AimAtHead = true
+
+--------------------------------------------------------
+-- GUI CREATION
+--------------------------------------------------------
+
+local Gui = Instance.new("ScreenGui")
+Gui.Name = "AimAssistTester"
+Gui.ResetOnSpawn = false
+Gui.Parent = PlayerGui
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Name = "ToggleButton"
+ToggleButton.Parent = Gui
+ToggleButton.Size = UDim2.new(0, 60, 0, 60)
+ToggleButton.Position = UDim2.new(1, -75, 0.5, -30)
+ToggleButton.Text = "🎯"
+ToggleButton.TextScaled = true
+ToggleButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+ToggleButton.TextColor3 = Color3.new(1, 1, 1)
+ToggleButton.BorderSizePixel = 0
+
+local ButtonCorner = Instance.new("UICorner")
+ButtonCorner.CornerRadius = UDim.new(1, 0)
+ButtonCorner.Parent = ToggleButton
+
+--------------------------------------------------------
+-- POPUP
+--------------------------------------------------------
+
+local PopupLabel = Instance.new("TextLabel")
+PopupLabel.Name = "PopupLabel"
+PopupLabel.Parent = Gui
+PopupLabel.Size = UDim2.new(0, 220, 0, 45)
+PopupLabel.Position = UDim2.new(0.5, -110, 0.1, 0)
+PopupLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+PopupLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+PopupLabel.TextSize = 16
+PopupLabel.Font = Enum.Font.GothamBold
+PopupLabel.Text = "Press E to aim"
+PopupLabel.Visible = false
+PopupLabel.BackgroundTransparency = 0.2
+
+local PopupCorner = Instance.new("UICorner")
+PopupCorner.CornerRadius = UDim.new(0, 8)
+PopupCorner.Parent = PopupLabel
+
+--------------------------------------------------------
+-- DEVICE DETECTION
+--------------------------------------------------------
+
+local IsPC = UserInputService.KeyboardEnabled
+	and not UserInputService.TouchEnabled
+
+if IsPC then
+	ToggleButton.Visible = false
+
+	PopupLabel.Visible = true
+	PopupLabel.TextTransparency = 1
+	PopupLabel.BackgroundTransparency = 1
+
+	local fadeIn = TweenService:Create(
+		PopupLabel,
+		TweenInfo.new(0.5),
+		{
+			TextTransparency = 0,
+			BackgroundTransparency = 0.2
+		}
+	)
+
+	fadeIn:Play()
+
+	task.delay(3, function()
+		local fadeOut = TweenService:Create(
+			PopupLabel,
+			TweenInfo.new(0.5),
+			{
+				TextTransparency = 1,
+				BackgroundTransparency = 1
+			}
+		)
+
+		fadeOut:Play()
+
+		fadeOut.Completed:Connect(function()
+			PopupLabel.Visible = false
+		end)
+	end)
+end
+
+--------------------------------------------------------
+-- MOBILE DRAGGING
+--------------------------------------------------------
+
+local function MakeDraggable(Object)
+
+	local Dragging = false
+	local DragInput
+	local DragStart
+	local StartPosition
+
+	Object.InputBegan:Connect(function(Input)
+
+		if Input.UserInputType == Enum.UserInputType.MouseButton1
+			or Input.UserInputType == Enum.UserInputType.Touch then
+
+			Dragging = true
+			DragStart = Input.Position
+
+			StartPosition = UDim2.new(
+				0,
+				Object.AbsolutePosition.X,
+				0,
+				Object.AbsolutePosition.Y
+			)
+
+			Input.Changed:Connect(function()
+
+				if Input.UserInputState == Enum.UserInputState.End then
+					Dragging = false
+				end
+
+			end)
+		end
+	end)
+
+	Object.InputChanged:Connect(function(Input)
+
+		if Input.UserInputType == Enum.UserInputType.MouseMovement
+			or Input.UserInputType == Enum.UserInputType.Touch then
+
+			DragInput = Input
+		end
+
+	end)
+
+	UserInputService.InputChanged:Connect(function(Input)
+
+		if Input == DragInput and Dragging then
+
+			local Delta = Input.Position - DragStart
+
+			Object.Position = UDim2.new(
+				0,
+				StartPosition.X.Offset + Delta.X,
+				0,
+				StartPosition.Y.Offset + Delta.Y
+			)
+
+		end
+
+	end)
+end
+
+if not IsPC then
+	MakeDraggable(ToggleButton)
+end
+
+--------------------------------------------------------
+-- CLAMP BUTTON
+--------------------------------------------------------
+
+local function Clamp(Object)
+
+	if not Object.Visible then
+		return
+	end
+
+	local Viewport = Camera.ViewportSize
+
+	if Viewport.X == 0 or Viewport.Y == 0 then
+		return
+	end
+
+	local currentX = Object.AbsolutePosition.X
+	local currentY = Object.AbsolutePosition.Y
+
+	local clampedX = math.clamp(
+		currentX,
+		0,
+		Viewport.X - Object.AbsoluteSize.X
+	)
+
+	local clampedY = math.clamp(
+		currentY,
+		0,
+		Viewport.Y - Object.AbsoluteSize.Y
+	)
+
+	if currentX ~= clampedX or currentY ~= clampedY then
+
+		Object.Position = UDim2.new(
+			0,
+			clampedX,
+			0,
+			clampedY
+		)
+
+	end
+end
+
+--------------------------------------------------------
+-- VISUALS
+--------------------------------------------------------
+
+local function UpdateVisuals()
+
+	if AimAssistEnabled then
+
+		ToggleButton.BackgroundColor3 =
+			Color3.fromRGB(50, 170, 80)
+
+	else
+
+		ToggleButton.BackgroundColor3 =
+			Color3.fromRGB(180, 50, 50)
+
+	end
+end
+
+--------------------------------------------------------
+-- INPUT
+--------------------------------------------------------
+
+UserInputService.InputBegan:Connect(function(Input, GameProcessed)
+
+	if Input.UserInputType ~= Enum.UserInputType.Keyboard then
+		return
+	end
+
+	----------------------------------------------------
+	-- REBIND WITH BACKSPACE
+	----------------------------------------------------
+
+	if Input.KeyCode == Enum.KeyCode.Backspace then
+
+		IsRebinding = true
+
+		print(
+			"[AimAssist]: Press any key except Backspace to set a new aim key."
+		)
+
+		return
+	end
+
+	----------------------------------------------------
+	-- NEW KEYBIND
+	----------------------------------------------------
+
+	if IsRebinding then
+
+		if Input.KeyCode ~= Enum.KeyCode.Backspace then
+
+			AimKey = Input.KeyCode
+			IsRebinding = false
+
+			print(
+				"[AimAssist]: New aim key:",
+				AimKey.Name
+			)
+
+		end
+
+		return
+	end
+
+	if GameProcessed then
+		return
+	end
+
+	----------------------------------------------------
+	-- HOLD AIM KEY
+	----------------------------------------------------
+
+	if Input.KeyCode == AimKey then
+
+		AimAssistEnabled = true
+		UpdateVisuals()
+
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(Input)
+
+	if Input.UserInputType == Enum.UserInputType.Keyboard
+		and not IsRebinding then
+
+		if Input.KeyCode == AimKey then
+
+			AimAssistEnabled = false
+			UpdateVisuals()
+
+		end
+	end
+end)
+
+--------------------------------------------------------
+-- MOBILE BUTTON
+--------------------------------------------------------
+
+ToggleButton.MouseButton1Click:Connect(function()
+
+	AimAssistEnabled = not AimAssistEnabled
+	UpdateVisuals()
+
+end)
+
+--------------------------------------------------------
+-- CROSSHAIR TARGETING
+--------------------------------------------------------
+
+local function GetPlayerNearCrosshair()
+
+	local ViewportSize = Camera.ViewportSize
+
+	-- Center of the screen
+	local ScreenCenter = Vector2.new(
+		ViewportSize.X / 2,
+		ViewportSize.Y / 2
+	)
+
+	local ClosestPlayer = nil
+	local ClosestPart = nil
+	local ClosestRoot = nil
+
+	-- Start with maximum FOV distance
+	local ClosestScreenDistance = AimFOV
+
+	for _, Player in ipairs(Players:GetPlayers()) do
+
+		if Player ~= LocalPlayer
+			and Player.Character then
+
+			local Character = Player.Character
+
+			local Humanoid =
+				Character:FindFirstChildOfClass("Humanoid")
+
+			local Head =
+				Character:FindFirstChild("Head")
+
+			local Root =
+				Character:FindFirstChild("HumanoidRootPart")
+
+			if Humanoid
+				and Head
+				and Root
+				and Humanoid.Health > 0 then
+
+				------------------------------------------------
+				-- Convert the player's head position into
+				-- 2D screen coordinates
+				------------------------------------------------
+
+				local ScreenPosition, OnScreen =
+					Camera:WorldToViewportPoint(Head.Position)
+
+				if OnScreen and ScreenPosition.Z > 0 then
+
+					local PlayerScreenPosition =
+						Vector2.new(
+							ScreenPosition.X,
+							ScreenPosition.Y
+						)
+
+					------------------------------------------------
+					-- Distance from crosshair
+					------------------------------------------------
+
+					local ScreenDistance =
+						(PlayerScreenPosition - ScreenCenter).Magnitude
+
+					------------------------------------------------
+					-- Closest player to crosshair wins
+					------------------------------------------------
+
+					if ScreenDistance < ClosestScreenDistance then
+
+						ClosestScreenDistance = ScreenDistance
+
+						ClosestPlayer = Player
+						ClosestPart = AimAtHead
+							and Head
+							or Root
+
+						ClosestRoot = Root
+
+					end
+				end
+			end
+		end
+	end
+
+	return ClosestPlayer, ClosestPart, ClosestRoot
+end
+
+--------------------------------------------------------
+-- CORE AIM LOOP
+--------------------------------------------------------
+
+RunService.RenderStepped:Connect(function()
+
+	Clamp(ToggleButton)
+
+	if not AimAssistEnabled then
+		return
+	end
+
+	local MyCharacter = LocalPlayer.Character
+
+	if not MyCharacter then
+		return
+	end
+
+	local MyRoot =
+		MyCharacter:FindFirstChild("HumanoidRootPart")
+
+	if not MyRoot then
+		return
+	end
+
+	----------------------------------------------------
+	-- GET PLAYER CLOSEST TO CROSSHAIR
+	----------------------------------------------------
+
+	local Player, AimPart, EnemyRoot =
+		GetPlayerNearCrosshair()
+
+	if Player and AimPart and EnemyRoot then
+
+		Camera.CameraType = Enum.CameraType.Custom
+
+		------------------------------------------------
+		-- CAMERA AIM
+		------------------------------------------------
+
+		local TargetLook =
+			CFrame.lookAt(
+				Camera.CFrame.Position,
+				AimPart.Position
+			)
+
+		local TargetRotation =
+			TargetLook - TargetLook.Position
+
+		Camera.CFrame =
+			CFrame.new(Camera.CFrame.Position)
+			* TargetRotation
+
+		------------------------------------------------
+		-- ROTATE PLAYER TOWARD TARGET
+		------------------------------------------------
+
+		local FlatEnemyPos = Vector3.new(
+			EnemyRoot.Position.X,
+			MyRoot.Position.Y,
+			EnemyRoot.Position.Z
+		)
+
+		if (FlatEnemyPos - MyRoot.Position).Magnitude > 0.1 then
+
+			MyRoot.CFrame =
+				CFrame.lookAt(
+					MyRoot.Position,
+					FlatEnemyPos
+				)
+
+		end
+	end
+end)
+```
+
+This changes the targeting behavior from **3D distance** to **2D distance from the crosshair**.
+
+### How it works
+
+Imagine your screen is:
+
+```text
+             Enemy
+               X
+               
+       Enemy
+         X
+
+              +
+           CROSSHAIR
+
+                    Enemy
+                      X
+```
+
+The script converts every player's `Head.Position` into a screen position using:
+
+```lua
+Camera:WorldToViewportPoint(Head.Position)
+```
+
+Then it calculates:
+
+```lua
+ScreenDistance =
+    (PlayerScreenPosition - ScreenCenter).Magnitude
+```
+
+The player with the **smallest screen distance** is selected.
+
+### Adjust the aim-assist radius
+
+This line controls how far away from the crosshair a player can be:
+
+```lua
+local AimFOV = 250
+```
+
+For example:
+
+```lua
+local AimFOV = 100
+```
+
+= very small aim area.
+
+```lua
+local AimFOV = 250
+```
+
+= moderate aim area.
+
+```lua
+local AimFOV = 500
+```
+
+= large aim area.
